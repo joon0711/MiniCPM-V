@@ -6,6 +6,10 @@ import os
 import tqdm
 import re 
 
+from fsspec import open
+import fsspec
+import io
+
 def clean(text):
     text = text.replace("```markdown", "").replace("```", "")
 
@@ -17,6 +21,15 @@ def clean(text):
     
     return text
 
+def read_image(image_path):
+    with fsspec.open(image_path, "rb") as f:
+        fsspec.asyn.iothread[0] = None
+        fsspec.asyn.loop[0] = None
+        buf = f.read()
+        f_io = io.BytesIO(buf)
+        image = Image.open(f_io).convert("RGB")
+    return image 
+
 parser = argparse.ArgumentParser()
 parser.add_argument("--inputs", nargs="+", help="input img file paths")
 parser.add_argument("--output", help="output folder")
@@ -24,8 +37,8 @@ args = parser.parse_args()
 
 os.makedirs(args.output, exist_ok=True)
 
-#model_path = "openbmb/MiniCPM-V-2_6"
-model_path = "output/output_minicpmv26_epoch_3"
+model_path = "openbmb/MiniCPM-V-2_6"
+#model_path = "output/output_minicpmv26_epoch_3"
 model = AutoModel.from_pretrained(model_path, trust_remote_code=True,
     attn_implementation='sdpa', torch_dtype=torch.bfloat16) # sdpa or flash_attention_2, no eager
 model = model.eval().cuda()
@@ -70,7 +83,8 @@ params = {
 """
 
 for in_path in tqdm.tqdm(args.inputs):
-    image = Image.open(in_path).convert('RGB')
+    image = read_image(in_path)
+    #image = Image.open(in_path).convert('RGB')
     question = '\nCan you convert the information in the image to a markdown file. Only output the markdown, nothing else'
     msgs = [{'role': 'user', 'content': [image, question]}]
 

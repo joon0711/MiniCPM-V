@@ -36,4 +36,3 @@ decord
 deepspeed
 peft
 tensorboard
-flash_attn

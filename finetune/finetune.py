@@ -22,6 +22,7 @@ from dataset import SupervisedDataset, data_collator
 from trainer import CPMTrainer
 
 from peft import LoraConfig, get_peft_model, prepare_model_for_kbit_training
+import fsspec
 
 @dataclass
 class ModelArguments:
@@ -98,7 +99,10 @@ def make_supervised_data_module(
 
     rank0_print("Loading data...")
 
-    train_json = json.load(open(data_args.data_path, "r"))
+
+    with fsspec.open(data_args.data_path, "r") as f:
+        train_json = json.load(f)
+
     train_dataset = dataset_cls(
         train_json,
         transform,
@@ -111,7 +115,9 @@ def make_supervised_data_module(
     )
 
     if data_args.eval_data_path:
-        eval_json = json.load(open(data_args.eval_data_path, "r"))
+        with fsspec.open(data_args.eval_data_path, "r") as f:
+            eval_json = json.load(f)
+
         eval_dataset = dataset_cls(
             eval_json,
             transform,

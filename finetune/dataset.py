@@ -13,7 +13,19 @@ from torch.nn.utils.rnn import pad_sequence
 from torch.utils.data import Dataset
 from transformers import AutoProcessor, AutoTokenizer
 
+import fsspec
+import io
+
 llama3_chat_template = "{% set loop_messages = messages %}{% for message in loop_messages %}{% set content = '<|start_header_id|>' + message['role'] + '<|end_header_id|>\n\n'+ message['content'] | trim + '<|eot_id|>' %}{% if loop.index0 == 0 %}{% set content = bos_token + content %}{% endif %}{{ content }}{% endfor %}"
+
+def read_image(image_path):
+    with fsspec.open(image_path, "rb") as f:
+        fsspec.asyn.iothread[0] = None
+        fsspec.asyn.loop[0] = None
+        buf = f.read()
+        f_io = io.BytesIO(buf)
+        image = Image.open(f_io).convert("RGB")
+    return image
 
 class SupervisedDataset(Dataset):
     """Dataset for supervised fine-tuning."""
@@ -43,7 +55,7 @@ class SupervisedDataset(Dataset):
         return len(self.raw_data)
 
     def __getitem__(self, i) -> Dict[str, torch.Tensor]:
-        image = Image.open(self.raw_data[i]["image"]).convert("RGB")
+        image = read_image(self.raw_data[i]["image"])
         ret = preprocess(
             image,
             self.raw_data[i]["conversations"],

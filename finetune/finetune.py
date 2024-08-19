@@ -23,6 +23,8 @@ from trainer import CPMTrainer
 
 from peft import LoraConfig, get_peft_model, prepare_model_for_kbit_training
 import fsspec
+from fsspec.utils import other_paths
+import torch.distributed as dist
 
 @dataclass
 class ModelArguments:
@@ -165,6 +167,35 @@ def get_parameter_number(model):
     return {'Total': all_param, 'Trainable': trainable_params}
 
 
+def dist_upload(local_path: str, remote_path: str):
+    """Uploads all files from a local directory to a remote directory.
+
+    Assumes dist is initialized.
+
+    Args:
+        local_path (str): The path to the local directory.
+        remote_path (str): The path to the remote directory (tested for gcs).
+    """
+    local_fs, _, _ = fsspec.get_fs_token_paths(local_path)
+    remote_fs, _, _ = fsspec.get_fs_token_paths(remote_path)
+
+    # get list of all files in local directory
+    lpaths = local_fs.expand_path(local_path, recursive=True)
+    lpaths = [lpath for lpath in lpaths if local_fs.isfile(lpath)]
+
+    # make corresponding file paths in remote directory
+    rpaths = other_paths(lpaths, remote_path)
+
+    for idx, (lpath, rpath) in enumerate(zip(lpaths, rpaths, strict=True)):
+        if idx % dist.get_world_size() == dist.get_rank():
+            remote_fs.put_file(lpath, rpath)
+
+    # synchronize all processes to make sure upload is complete
+    # before moving on to clear cache/or any operation on the local files
+    dist.barrier()
+
+
+
 local_rank = 0
 
 
@@ -292,10 +323,17 @@ def train():
     trainer.train()
     trainer.save_state()
 
+    local_path = "trained_checkpoint"
+
     safe_save_model_for_hf_trainer(
         trainer=trainer,
-        output_dir=training_args.output_dir,
+        output_dir=local_path,
         bias=lora_args.lora_bias)
+    dist.barrier()
+    print(f"Uploading to {training_args.output_dir}")
+
+    dist_upload(local_path=local_path, remote_path=training_args.output_dir)
+    print(f"Finished Checkpointing {training_args.output_dir}")
 
 
 if __name__ == "__main__":
